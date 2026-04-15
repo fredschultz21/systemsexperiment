@@ -1,0 +1,165 @@
+import { useState, useRef, useEffect } from "react";
+
+function Home() {
+    const [isPrompted, setIsPrompted] = useState(false);
+    const [inputValue, setInputValue] = useState("");
+    const [messages, setMessages] = useState([]);
+    const bottomRef = useRef(null);
+    const scrollRef = useRef(null);
+    const isAtBottomRef = useRef(true);
+
+    const scrollToBottom = (smooth = true) => {
+        if (!isAtBottomRef.current) return;
+        bottomRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "instant" });
+    };
+
+    const handleScroll = () => {
+        const el = scrollRef.current;
+        if (!el) return;
+        const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+        isAtBottomRef.current = distanceFromBottom < 60;
+    };
+
+    useEffect(() => {
+        scrollToBottom();
+    }, [messages]);
+
+    const displayWordByWord = (text, messageIndex) => {
+        const words = text.split(" ");
+        let i = 0;
+        const interval = setInterval(() => {
+            if (i >= words.length) {
+                clearInterval(interval);
+                return;
+            }
+            setMessages(prev =>
+                prev.map((msg, idx) =>
+                    idx === messageIndex
+                        ? { ...msg, displayed: words.slice(0, i + 1).join(" ") }
+                        : msg
+                )
+            );
+            i++;
+        }, 60);
+    };
+
+    const handleSubmit = async (prompt) => {
+        if (!prompt.trim()) return;
+
+        const aiMessageIndex = messages.length + 1;
+
+        setMessages(prev => [
+            ...prev,
+            { role: "user", text: prompt },
+            { role: "ai", text: "", displayed: "" }
+        ]);
+        setInputValue("");
+        setIsPrompted(true);
+        isAtBottomRef.current = true;
+
+        try {
+            const response = await fetch("http://localhost:3002/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: prompt })
+            });
+
+            const data = await response.json();
+            const aiText = data.choices[0].message.content;
+
+            setMessages(prev =>
+                prev.map((msg, idx) =>
+                    idx === aiMessageIndex
+                        ? { ...msg, text: aiText }
+                        : msg
+                )
+            );
+
+            displayWordByWord(aiText, aiMessageIndex);
+        } catch (err) {
+            setMessages(prev =>
+                prev.map((msg, idx) =>
+                    idx === aiMessageIndex
+                        ? { ...msg, text: "Something went wrong.", displayed: "Something went wrong." }
+                        : msg
+                )
+            );
+        }
+    };
+
+    const inputEl = (
+        <input
+            type="text"
+            value={inputValue}
+            placeholder="How can I help you today?"
+            className="bg-stone-800 w-1/3 px-5 py-3 text-stone-200 rounded-3xl transition-colors duration-200 placeholder-stone-500 font-serif border outline-none border-stone-800 focus:border-stone-600 caret-stone-300"
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={(e) => {
+                if (e.key === "Enter" && inputValue.trim() !== "") {
+                    handleSubmit(inputValue);
+                }
+            }}
+        />
+    );
+
+    return (
+        <>
+            {!isPrompted ? (
+                <div className="flex flex-col bg-stone-900 h-screen">
+                    <div className="flex items-center justify-center flex-1 flex-col pb-32">
+                        <p className="text-4xl text-red-50 font-serif py-8">
+                            Here for your consultation needs
+                        </p>
+                        {inputEl}
+                    </div>
+                </div>
+            ) : (
+                <div className="flex flex-col bg-stone-900 h-screen">
+                    <div
+                        ref={scrollRef}
+                        onScroll={handleScroll}
+                        className="flex-1 overflow-y-auto scrollbar-hide px-4 py-10"
+                        style={{ scrollBehavior: "smooth" }}
+                    >
+                        <div className="w-1/2 mx-auto flex flex-col gap-4">
+                            {messages.map((msg, idx) => (
+                                <div
+                                    key={idx}
+                                    className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                                >
+                                    <div
+                                        className={`px-4 py-3 rounded-2xl max-w-[75%] font-serif text-base leading-relaxed ${msg.role === "user"
+                                                ? "bg-stone-600 text-red-50 rounded-br-sm"
+                                                : "bg-stone-800 text-red-50 rounded-bl-sm"
+                                            }`}
+                                    >
+                                        {msg.role === "ai" && msg.displayed === "" ? (
+                                            <span className="flex gap-1 items-center h-5">
+                                                <span className="w-2 h-2 bg-stone-400 rounded-full animate-bounce [animation-delay:0ms]" />
+                                                <span className="w-2 h-2 bg-stone-400 rounded-full animate-bounce [animation-delay:150ms]" />
+                                                <span className="w-2 h-2 bg-stone-400 rounded-full animate-bounce [animation-delay:300ms]" />
+                                            </span>
+                                        ) : (
+                                            <>
+                                                {msg.role === "ai" ? msg.displayed : msg.text}
+                                                {msg.role === "ai" && msg.displayed && msg.displayed !== msg.text && (
+                                                    <span className="inline-block w-1 h-4 ml-1 bg-stone-400 animate-pulse align-middle" />
+                                                )}
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                            <div ref={bottomRef} />
+                        </div>
+                    </div>
+                    <div className="flex items-center justify-center py-6">
+                        {inputEl}
+                    </div>
+                </div>
+            )}
+        </>
+    );
+}
+
+export default Home;
