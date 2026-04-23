@@ -205,9 +205,10 @@ if __name__ == "__main__":
     logger.info("Starting PRODUCTION Flask server...")
     logger.info("RAG: Supabase vector search")
     logger.info("Server will run on: http://127.0.0.1:3002")
+    port = int(os.environ.get("PORT", 3002))
     app.run(
         host="0.0.0.0",
-        port=3002,
+        port=port,
         debug=False,
         use_reloader=False
     )
