@@ -13,24 +13,31 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173"])
+CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173", "https://systemsexperiment.vercel.app"])
 
-# ── Supabase + embedding model (loads once on startup) ───────────────────────
-logger.info("Loading embedding model...")
-_model    = SentenceTransformer("all-MiniLM-L6-v2")
-_supabase = create_client(
-    os.environ["SUPABASE_URL"],
-    os.environ["SUPABASE_SERVICE_KEY"]
-)
-logger.info("Embedding model and Supabase client ready")
+# ── Lazy loading — loads on first request, not at startup ─────────────────────
+_model = None
+_supabase = None
+
+def get_clients():
+    global _model, _supabase
+    if _model is None:
+        logger.info("Loading embedding model...")
+        _model = SentenceTransformer("all-MiniLM-L6-v2")
+        _supabase = create_client(
+            os.environ["SUPABASE_URL"],
+            os.environ["SUPABASE_SERVICE_KEY"]
+        )
+        logger.info("Embedding model and Supabase client ready")
+    return _model, _supabase
 
 # ── Retrieval ────────────────────────────────────────────────────────────────
 def retrieve(query: str, top_k: int = 5) -> str:
-    """Embed query, search Supabase for similar chunks, return context string."""
     try:
-        query_vector = _model.encode(query, normalize_embeddings=True).tolist()
+        model, supabase = get_clients()
+        query_vector = model.encode(query, normalize_embeddings=True).tolist()
 
-        result = _supabase.rpc("match_chunks", {
+        result = supabase.rpc("match_chunks", {
             "query_embedding": query_vector,
             "match_count":     top_k,
         }).execute()
@@ -51,8 +58,7 @@ def retrieve(query: str, top_k: int = 5) -> str:
         return "Error retrieving context."
 
 # ── Model call ───────────────────────────────────────────────────────────────
-def call_model_api(prompt, ngrok_url):
-    """Call the model API with robust error handling and multiple prompt formats."""
+def call_model_api(prompt, hf_url):
     prompt_formats = [
         f"Question: {prompt}\n\nAnswer:",
         f"Please answer this question about fraud prevention: {prompt}",
@@ -60,19 +66,16 @@ def call_model_api(prompt, ngrok_url):
         prompt
     ]
 
-    headers = {
-        "ngrok-skip-browser-warning": "true",
-        "Content-Type": "application/json"
-    }
+    headers = {"Content-Type": "application/json"}
 
     for i, formatted_prompt in enumerate(prompt_formats):
         try:
             logger.info(f"Trying prompt format {i+1}")
             response = requests.post(
-                f"{ngrok_url}/generate",
+                f"{hf_url}/generate",
                 headers=headers,
                 json={"inputs": formatted_prompt},
-                timeout=90
+                timeout=120
             )
             logger.info(f"Response status: {response.status_code}")
 
@@ -100,7 +103,6 @@ def call_model_api(prompt, ngrok_url):
     raise Exception("All prompt formats failed to generate valid text")
 
 def is_valid_and_complete_text(text):
-    """Check if generated text looks valid and reasonably complete."""
     if not text or len(text) < 10:
         return False
     words = text.split()
@@ -125,7 +127,7 @@ def is_valid_and_complete_text(text):
 def health_check():
     return jsonify({
         "status": "Production server running",
-        "rag":     "Supabase vector search",
+        "rag":    "Supabase vector search",
         "version": "4.0-supabase"
     })
 
@@ -142,11 +144,9 @@ def chat():
 
         logger.info(f"Chat request: {message[:50]}...")
 
-        # Retrieve relevant context from Supabase
         context = retrieve(message)
         logger.info(f"Context retrieved: {len(context)} chars")
 
-        # Build prompt — allow up to 300 words of context
         if context and context != "No relevant context found." and len(context) > 50:
             context_words = context.split()[:300]
             limited_context = " ".join(context_words)
@@ -161,10 +161,9 @@ Provide a complete, helpful answer:"""
 
 Provide a complete, helpful answer:"""
 
-        # Update this URL to your current ngrok or HuggingFace endpoint
-        ngrok_url = "https://fredschultz-qwen-lora-api.hf.space:8000"
+        hf_url = "https://fredschultz-qwen-lora-api.hf.space:8000"
 
-        ai_response = call_model_api(full_prompt, ngrok_url)
+        ai_response = call_model_api(full_prompt, hf_url)
 
         if len(ai_response.split()) < 5:
             ai_response = "I can help with Iowa City housing and fraud prevention. Could you be more specific about what you'd like to know?"
@@ -179,9 +178,9 @@ Provide a complete, helpful answer:"""
             }],
             "model": "local-model",
             "usage": {
-                "prompt_tokens":      len(full_prompt.split()),
-                "completion_tokens":  len(ai_response.split()),
-                "total_tokens":       len(full_prompt.split()) + len(ai_response.split())
+                "prompt_tokens":     len(full_prompt.split()),
+                "completion_tokens": len(ai_response.split()),
+                "total_tokens":      len(full_prompt.split()) + len(ai_response.split())
             }
         })
 
@@ -195,17 +194,17 @@ Provide a complete, helpful answer:"""
 @app.route("/test", methods=["GET"])
 def test_simple():
     return jsonify({
-        "status":    "OK",
-        "message":   "Production server is running",
-        "rag":       "Supabase vector search active",
+        "status":  "OK",
+        "message": "Production server is running",
+        "rag":     "Supabase vector search active",
         "endpoints": ["/", "/chat", "/test"]
     })
 
 if __name__ == "__main__":
     logger.info("Starting PRODUCTION Flask server...")
     logger.info("RAG: Supabase vector search")
-    logger.info("Server will run on: http://127.0.0.1:3002")
     port = int(os.environ.get("PORT", 3002))
+    logger.info(f"Server will run on port {port}")
     app.run(
         host="0.0.0.0",
         port=port,
