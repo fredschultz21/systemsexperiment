@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173", "https://systemsexperiment.vercel.app"])
+CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173", "https://systemsexperiment.vercel.app", "https://systemsexperiment-git-main-fredschultz21s-projects.vercel.app"])
 
 # Lazy loading — imports torch only on first request
 _model = None
