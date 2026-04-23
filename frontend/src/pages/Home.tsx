@@ -3,7 +3,13 @@ import { useState, useRef, useEffect } from "react";
 function Home() {
     const [isPrompted, setIsPrompted] = useState(false);
     const [inputValue, setInputValue] = useState("");
-    const [messages, setMessages] = useState([]);
+    interface Message {
+        role: "user" | "ai";
+        text: string;
+        displayed?: string;
+    }
+
+    const [messages, setMessages] = useState<Message[]>([]);
     const bottomRef = useRef(null);
     const scrollRef = useRef(null);
     const isAtBottomRef = useRef(true);
@@ -58,7 +64,7 @@ function Home() {
         isAtBottomRef.current = true;
 
         try {
-            const response = await fetch("https://your-service-name.onrender.com/chat", {
+            const response = await fetch(`${import.meta.env.VITE_API_URL}/chat`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ message: prompt })
