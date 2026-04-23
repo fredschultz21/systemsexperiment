@@ -1,7 +1,6 @@
 import os
 import requests
 import logging
-import openai
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -20,28 +19,31 @@ CORS(app, origins=[
 ])
 
 _supabase = None
-_openai_client = None
 
-def get_clients():
-    global _supabase, _openai_client
+def get_supabase():
+    global _supabase
     if _supabase is None:
         from supabase import create_client
         _supabase = create_client(
             os.environ["SUPABASE_URL"],
             os.environ["SUPABASE_SERVICE_KEY"]
         )
-        _openai_client = openai.OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-        logger.info("Clients ready")
-    return _supabase, _openai_client
+        logger.info("Supabase client ready")
+    return _supabase
+
+def embed(text: str) -> list:
+    response = requests.post(
+        "https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2",
+        headers={"Authorization": f"Bearer {os.environ['HF_TOKEN']}"},
+        json={"inputs": text}
+    )
+    response.raise_for_status()
+    return response.json()[0]
 
 def retrieve(query: str, top_k: int = 5) -> str:
     try:
-        supabase, openai_client = get_clients()
-        response = openai_client.embeddings.create(
-            input=query,
-            model="text-embedding-3-small"
-        )
-        query_vector = response.data[0].embedding
+        query_vector = embed(query)
+        supabase = get_supabase()
 
         result = supabase.rpc("match_chunks", {
             "query_embedding": query_vector,
