@@ -4,8 +4,6 @@ import logging
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
-from supabase import create_client
-from sentence_transformers import SentenceTransformer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -15,7 +13,7 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173", "https://systemsexperiment.vercel.app"])
 
-# ── Lazy loading — loads on first request, not at startup ─────────────────────
+# Lazy loading — imports torch only on first request
 _model = None
 _supabase = None
 
@@ -23,41 +21,36 @@ def get_clients():
     global _model, _supabase
     if _model is None:
         logger.info("Loading embedding model...")
+        from sentence_transformers import SentenceTransformer
+        from supabase import create_client
         _model = SentenceTransformer("all-MiniLM-L6-v2")
         _supabase = create_client(
             os.environ["SUPABASE_URL"],
             os.environ["SUPABASE_SERVICE_KEY"]
         )
-        logger.info("Embedding model and Supabase client ready")
+        logger.info("Ready")
     return _model, _supabase
 
-# ── Retrieval ────────────────────────────────────────────────────────────────
 def retrieve(query: str, top_k: int = 5) -> str:
     try:
         model, supabase = get_clients()
         query_vector = model.encode(query, normalize_embeddings=True).tolist()
-
         result = supabase.rpc("match_chunks", {
             "query_embedding": query_vector,
-            "match_count":     top_k,
+            "match_count": top_k,
         }).execute()
-
         if not result.data:
             return "No relevant context found."
-
         context_parts = []
         for chunk in result.data:
             source = chunk.get("source_name", "Unknown source")
-            text   = chunk.get("text", "")
+            text = chunk.get("text", "")
             context_parts.append(f"[{source}]\n{text}")
-
         return "\n\n---\n\n".join(context_parts)
-
     except Exception as e:
         logger.error(f"Retrieval error: {e}")
         return "Error retrieving context."
 
-# ── Model call ───────────────────────────────────────────────────────────────
 def call_model_api(prompt, hf_url):
     prompt_formats = [
         f"Question: {prompt}\n\nAnswer:",
@@ -65,42 +58,25 @@ def call_model_api(prompt, hf_url):
         f"Human: {prompt}\nAssistant:",
         prompt
     ]
-
     headers = {"Content-Type": "application/json"}
-
     for i, formatted_prompt in enumerate(prompt_formats):
         try:
-            logger.info(f"Trying prompt format {i+1}")
             response = requests.post(
                 f"{hf_url}/generate",
                 headers=headers,
                 json={"inputs": formatted_prompt},
                 timeout=120
             )
-            logger.info(f"Response status: {response.status_code}")
-
             if response.status_code == 200:
                 data = response.json()
                 if isinstance(data, list) and len(data) > 0:
                     generated_text = data[0].get("generated_text", "").strip()
                     if generated_text and is_valid_and_complete_text(generated_text):
-                        logger.info(f"Success with format {i+1}")
                         return generated_text
-                    else:
-                        logger.warning(f"Format {i+1} produced incomplete/invalid text")
-                        continue
-                else:
-                    logger.warning(f"Format {i+1}: Unexpected response format")
-                    continue
-            else:
-                logger.warning(f"Format {i+1}: HTTP {response.status_code}")
-                continue
-
+            logger.warning(f"Format {i+1} failed: HTTP {response.status_code}")
         except Exception as e:
             logger.error(f"Format {i+1} failed: {e}")
-            continue
-
-    raise Exception("All prompt formats failed to generate valid text")
+    raise Exception("All prompt formats failed")
 
 def is_valid_and_complete_text(text):
     if not text or len(text) < 10:
@@ -110,8 +86,7 @@ def is_valid_and_complete_text(text):
         return False
     garbled_chars = 'xjqzv'
     garbled_score = sum(1 for char in text.lower() if char in garbled_chars)
-    garbled_ratio = garbled_score / len(text) if text else 0
-    if garbled_ratio > 0.3:
+    if len(text) and garbled_score / len(text) > 0.3:
         return False
     unique_words = set(words[:15])
     if len(unique_words) < len(words[:15]) * 0.4:
@@ -122,14 +97,9 @@ def is_valid_and_complete_text(text):
         return False
     return True
 
-# ── Routes ───────────────────────────────────────────────────────────────────
 @app.route("/", methods=["GET"])
 def health_check():
-    return jsonify({
-        "status": "Production server running",
-        "rag":    "Supabase vector search",
-        "version": "4.0-supabase"
-    })
+    return jsonify({"status": "ok", "version": "4.0"})
 
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -137,77 +107,31 @@ def chat():
         data = request.json
         if not data:
             return jsonify({"error": "No JSON data provided"}), 400
-
         message = data.get("message")
         if not message:
-            return jsonify({"error": "Missing 'message' in request body"}), 400
-
-        logger.info(f"Chat request: {message[:50]}...")
-
+            return jsonify({"error": "Missing message"}), 400
         context = retrieve(message)
-        logger.info(f"Context retrieved: {len(context)} chars")
-
         if context and context != "No relevant context found." and len(context) > 50:
-            context_words = context.split()[:300]
-            limited_context = " ".join(context_words)
-            full_prompt = f"""Answer this question: {message}
-
-Use this information to help answer:
-{limited_context}
-
-Provide a complete, helpful answer:"""
+            limited_context = " ".join(context.split()[:300])
+            full_prompt = f"Answer this question: {message}\n\nUse this information:\n{limited_context}\n\nProvide a complete, helpful answer:"
         else:
-            full_prompt = f"""Answer this question about housing and fraud prevention in Iowa City: {message}
-
-Provide a complete, helpful answer:"""
-
+            full_prompt = f"Answer this question about housing and fraud prevention in Iowa City: {message}\n\nProvide a complete, helpful answer:"
         hf_url = "https://fredschultz-qwen-lora-api.hf.space:8000"
-
         ai_response = call_model_api(full_prompt, hf_url)
-
         if len(ai_response.split()) < 5:
-            ai_response = "I can help with Iowa City housing and fraud prevention. Could you be more specific about what you'd like to know?"
-
-        logger.info(f"Response generated: {len(ai_response)} chars")
-
+            ai_response = "I can help with Iowa City housing and fraud prevention. Could you be more specific?"
         return jsonify({
-            "choices": [{
-                "message": {
-                    "content": ai_response
-                }
-            }],
-            "model": "local-model",
-            "usage": {
-                "prompt_tokens":     len(full_prompt.split()),
-                "completion_tokens": len(ai_response.split()),
-                "total_tokens":      len(full_prompt.split()) + len(ai_response.split())
-            }
+            "choices": [{"message": {"content": ai_response}}],
+            "model": "qwen2-vl",
         })
-
     except Exception as e:
         logger.error(f"Chat error: {e}")
-        return jsonify({
-            "error": f"Failed to generate response: {str(e)}",
-            "fallback_response": "I apologize, but I'm having trouble generating a response right now. Please try again."
-        }), 500
+        return jsonify({"error": str(e), "fallback_response": "Having trouble right now, please try again."}), 500
 
 @app.route("/test", methods=["GET"])
 def test_simple():
-    return jsonify({
-        "status":  "OK",
-        "message": "Production server is running",
-        "rag":     "Supabase vector search active",
-        "endpoints": ["/", "/chat", "/test"]
-    })
+    return jsonify({"status": "OK", "rag": "Supabase vector search active"})
 
 if __name__ == "__main__":
-    logger.info("Starting PRODUCTION Flask server...")
-    logger.info("RAG: Supabase vector search")
-    port = int(os.environ.get("PORT", 3002))
-    logger.info(f"Server will run on port {port}")
-    app.run(
-        host="0.0.0.0",
-        port=port,
-        debug=False,
-        use_reloader=False
-    )
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
