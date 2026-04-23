@@ -33,7 +33,7 @@ def get_supabase():
 
 def embed(text: str) -> list:
     response = requests.post(
-        "https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2",
+        "https://api-inference.huggingface.co/models/sentence-transformers/all-MiniLM-L6-v2",
         headers={"Authorization": f"Bearer {os.environ['HF_TOKEN']}"},
         json={"inputs": text}
     )
@@ -133,7 +133,7 @@ def chat():
         else:
             full_prompt = f"Answer this question about housing and fraud prevention in Iowa City: {message}\n\nProvide a complete, helpful answer:"
 
-        hf_url = "https://fredschultz-qwen-lora-api.hf.space:8000"
+        hf_url = "https://fredschultz-qwen-lora-api.hf.space"
         ai_response = call_model_api(full_prompt, hf_url)
 
         if len(ai_response.split()) < 5:
