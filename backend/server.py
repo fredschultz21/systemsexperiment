@@ -109,6 +109,8 @@ def chat():
             full_prompt = f"Answer this question about housing and fraud prevention in Iowa City: {message}\n\nProvide a complete, helpful answer:"
 
         ai_response = call_model(full_prompt)
+        if "assistant\n" in ai_response:
+            ai_response = ai_response.split("assistant\n")[-1].strip()
 
         if not ai_response or len(ai_response.split()) < 5:
             ai_response = "I can help with Iowa City housing and fraud prevention. Could you be more specific?"
