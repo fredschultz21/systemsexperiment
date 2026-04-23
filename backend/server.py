@@ -82,8 +82,7 @@ def call_model(prompt: str) -> str:
     client = get_gradio_client()
     result = client.predict(
         prompt=prompt,
-        max_new_tokens=500,
-        api_name="/predict"
+        api_name="/run_inference"
     )
     return result
 
