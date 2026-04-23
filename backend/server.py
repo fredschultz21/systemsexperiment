@@ -19,6 +19,7 @@ CORS(app, origins=[
 ])
 
 _supabase = None
+_gradio_client = None
 
 def get_supabase():
     global _supabase
@@ -31,14 +32,26 @@ def get_supabase():
         logger.info("Supabase client ready")
     return _supabase
 
+def get_gradio_client():
+    global _gradio_client
+    if _gradio_client is None:
+        from gradio_client import Client
+        _gradio_client = Client("fredschultz/qwen-lora-api")
+        logger.info("Gradio client ready")
+    return _gradio_client
+
 def embed(text: str) -> list:
     response = requests.post(
         "https://api-inference.huggingface.co/models/sentence-transformers/all-MiniLM-L6-v2",
         headers={"Authorization": f"Bearer {os.environ['HF_TOKEN']}"},
-        json={"inputs": text}
+        json={"inputs": text},
+        timeout=30
     )
     response.raise_for_status()
-    return response.json()[0]
+    result = response.json()
+    if isinstance(result, list) and isinstance(result[0], list):
+        return result[0]
+    return result
 
 def retrieve(query: str, top_k: int = 5) -> str:
     try:
@@ -65,55 +78,18 @@ def retrieve(query: str, top_k: int = 5) -> str:
         logger.error(f"Retrieval error: {e}")
         return "Error retrieving context."
 
-def call_model_api(prompt, hf_url):
-    prompt_formats = [
-        f"Question: {prompt}\n\nAnswer:",
-        f"Please answer this question about fraud prevention: {prompt}",
-        f"Human: {prompt}\nAssistant:",
-        prompt
-    ]
-    headers = {"Content-Type": "application/json"}
-    for i, formatted_prompt in enumerate(prompt_formats):
-        try:
-            response = requests.post(
-                f"{hf_url}/generate",
-                headers=headers,
-                json={"inputs": formatted_prompt},
-                timeout=120
-            )
-            if response.status_code == 200:
-                data = response.json()
-                if isinstance(data, list) and len(data) > 0:
-                    generated_text = data[0].get("generated_text", "").strip()
-                    if generated_text and is_valid_and_complete_text(generated_text):
-                        return generated_text
-            logger.warning(f"Format {i+1} failed: HTTP {response.status_code}")
-        except Exception as e:
-            logger.error(f"Format {i+1} failed: {e}")
-    raise Exception("All prompt formats failed")
-
-def is_valid_and_complete_text(text):
-    if not text or len(text) < 10:
-        return False
-    words = text.split()
-    if len(words) < 3:
-        return False
-    garbled_chars = 'xjqzv'
-    garbled_score = sum(1 for char in text.lower() if char in garbled_chars)
-    if len(text) and garbled_score / len(text) > 0.3:
-        return False
-    unique_words = set(words[:15])
-    if len(unique_words) < len(words[:15]) * 0.4:
-        return False
-    if len(text) < 20 and not text.rstrip().endswith(('.', '!', '?', ':', ';')):
-        return False
-    if text.endswith((' how', ' what', ' the', ' and', ' but', ' or', ' to', ' can', ' will')):
-        return False
-    return True
+def call_model(prompt: str) -> str:
+    client = get_gradio_client()
+    result = client.predict(
+        prompt=prompt,
+        max_new_tokens=500,
+        api_name="/predict"
+    )
+    return result
 
 @app.route("/", methods=["GET"])
 def health_check():
-    return jsonify({"status": "ok", "version": "5.0"})
+    return jsonify({"status": "ok", "version": "6.0"})
 
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -133,10 +109,9 @@ def chat():
         else:
             full_prompt = f"Answer this question about housing and fraud prevention in Iowa City: {message}\n\nProvide a complete, helpful answer:"
 
-        hf_url = "https://fredschultz-qwen-lora-api.hf.space"
-        ai_response = call_model_api(full_prompt, hf_url)
+        ai_response = call_model(full_prompt)
 
-        if len(ai_response.split()) < 5:
+        if not ai_response or len(ai_response.split()) < 5:
             ai_response = "I can help with Iowa City housing and fraud prevention. Could you be more specific?"
 
         return jsonify({

@@ -4,4 +4,4 @@ requests
 python-dotenv
 supabase
 gunicorn
-gevent
+gradio_client
