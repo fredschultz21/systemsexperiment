@@ -58,7 +58,7 @@ function Home() {
         isAtBottomRef.current = true;
 
         try {
-            const response = await fetch("http://localhost:3002/chat", {
+            const response = await fetch("https://your-service-name.onrender.com/chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ message: prompt })
@@ -129,8 +129,8 @@ function Home() {
                                 >
                                     <div
                                         className={`px-4 py-3 rounded-2xl max-w-[75%] font-serif text-base leading-relaxed ${msg.role === "user"
-                                                ? "bg-stone-600 text-red-50 rounded-br-sm"
-                                                : "bg-stone-800 text-red-50 rounded-bl-sm"
+                                            ? "bg-stone-600 text-red-50 rounded-br-sm"
+                                            : "bg-stone-800 text-red-50 rounded-bl-sm"
                                             }`}
                                     >
                                         {msg.role === "ai" && msg.displayed === "" ? (
