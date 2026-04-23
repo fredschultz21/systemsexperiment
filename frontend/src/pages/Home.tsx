@@ -5,15 +5,19 @@ interface Message {
     role: "user" | "ai";
     text: string;
     displayed?: string;
+    image?: string;
 }
 
 function Home() {
     const [isPrompted, setIsPrompted] = useState(false);
     const [inputValue, setInputValue] = useState("");
     const [messages, setMessages] = useState<Message[]>([]);
+    const [imagePreview, setImagePreview] = useState(null);
+    const [imageB64, setImageB64] = useState(null);
     const bottomRef = useRef<HTMLDivElement>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const isAtBottomRef = useRef(true);
+    const fileInputRef = useRef(null);
 
     const scrollToBottom = (smooth = true) => {
         if (!isAtBottomRef.current) return;
@@ -30,6 +34,24 @@ function Home() {
     useEffect(() => {
         scrollToBottom();
     }, [messages]);
+
+    const handleImageChange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const base64 = reader.result.split(",")[1];
+            setImageB64(base64);
+            setImagePreview(reader.result);
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const clearImage = () => {
+        setImageB64(null);
+        setImagePreview(null);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+    };
 
     const displayWordByWord = (text: string, messageIndex: number) => {
         const words = text.split(" ");
@@ -57,18 +79,24 @@ function Home() {
 
         setMessages(prev => [
             ...prev,
-            { role: "user", text: prompt },
+            { role: "user", text: prompt, image: imagePreview },
             { role: "ai", text: "", displayed: "" }
         ]);
         setInputValue("");
         setIsPrompted(true);
         isAtBottomRef.current = true;
 
+        const currentImageB64 = imageB64;
+        clearImage();
+
         try {
+            const body: any = { message: prompt };
+            if (currentImageB64) body.image = currentImageB64;
+
             const response = await fetch(`${import.meta.env.VITE_API_URL}/chat`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ message: prompt })
+                body: JSON.stringify(body)
             });
 
             const data = await response.json();
@@ -95,18 +123,45 @@ function Home() {
     };
 
     const inputEl = (
-        <input
-            type="text"
-            value={inputValue}
-            placeholder="How can I help you today?"
-            className="bg-stone-800 w-1/3 px-5 py-3 text-stone-200 rounded-3xl transition-colors duration-200 placeholder-stone-500 font-serif border outline-none border-stone-800 focus:border-stone-600 caret-stone-300"
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={(e) => {
-                if (e.key === "Enter" && inputValue.trim() !== "") {
-                    handleSubmit(inputValue);
-                }
-            }}
-        />
+        <div className="flex flex-col items-center gap-2 w-1/3">
+            {imagePreview && (
+                <div className="relative">
+                    <img src={imagePreview} className="h-16 w-16 object-cover rounded-lg" />
+                    <button
+                        onClick={clearImage}
+                        className="absolute -top-1 -right-1 bg-stone-600 text-white rounded-full w-4 h-4 text-xs flex items-center justify-center"
+                    >×</button>
+                </div>
+            )}
+            <div className="flex w-full gap-2">
+                <input
+                    type="text"
+                    value={inputValue}
+                    placeholder="How can I help you today?"
+                    className="bg-stone-800 flex-1 px-5 py-3 text-stone-200 rounded-3xl transition-colors duration-200 placeholder-stone-500 font-serif border outline-none border-stone-800 focus:border-stone-600 caret-stone-300"
+                    onChange={(e) => setInputValue(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === "Enter" && inputValue.trim() !== "") {
+                            handleSubmit(inputValue);
+                        }
+                    }}
+                />
+                <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="bg-stone-700 hover:bg-stone-600 text-stone-300 px-3 py-3 rounded-full transition-colors"
+                    title="Upload image"
+                >
+                    📷
+                </button>
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleImageChange}
+                />
+            </div>
+        </div>
     );
 
     return (
@@ -140,6 +195,9 @@ function Home() {
                                             : "bg-stone-800 text-red-50 rounded-bl-sm"
                                             }`}
                                     >
+                                        {msg.image && (
+                                            <img src={msg.image} className="max-h-40 rounded-lg mb-2 object-cover" />
+                                        )}
                                         {msg.role === "ai" && msg.displayed === "" ? (
                                             <span className="flex gap-1 items-center h-5">
                                                 <span className="w-2 h-2 bg-stone-400 rounded-full animate-bounce [animation-delay:0ms]" />

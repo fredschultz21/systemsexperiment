@@ -78,17 +78,34 @@ def retrieve(query: str, top_k: int = 5) -> str:
         logger.error(f"Retrieval error: {e}")
         return "Error retrieving context."
 
-def call_model(prompt: str) -> str:
+def call_model(prompt: str, image_b64: str = None) -> str:
     client = get_gradio_client()
-    result = client.predict(
-        prompt=prompt,
-        api_name="/run_inference"
-    )
+    if image_b64:
+        from gradio_client import handle_file
+        import base64, tempfile, os as _os
+        img_data = base64.b64decode(image_b64)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as f:
+            f.write(img_data)
+            tmp_path = f.name
+        try:
+            result = client.predict(
+                prompt=prompt,
+                image=handle_file(tmp_path),
+                api_name="/run_inference"
+            )
+        finally:
+            _os.unlink(tmp_path)
+    else:
+        result = client.predict(
+            prompt=prompt,
+            image=None,
+            api_name="/run_inference"
+        )
     return result
 
 @app.route("/", methods=["GET"])
 def health_check():
-    return jsonify({"status": "ok", "version": "6.0"})
+    return jsonify({"status": "ok", "version": "7.0"})
 
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -99,6 +116,7 @@ def chat():
         message = data.get("message")
         if not message:
             return jsonify({"error": "Missing message"}), 400
+        image_b64 = data.get("image")
 
         context = retrieve(message)
 
@@ -108,7 +126,8 @@ def chat():
         else:
             full_prompt = f"Answer this question about housing and fraud prevention in Iowa City: {message}\n\nProvide a complete, helpful answer:"
 
-        ai_response = call_model(full_prompt)
+        ai_response = call_model(full_prompt, image_b64)
+
         if "assistant\n" in ai_response:
             ai_response = ai_response.split("assistant\n")[-1].strip()
 
