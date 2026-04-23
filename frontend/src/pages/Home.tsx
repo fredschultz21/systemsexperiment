@@ -1,17 +1,17 @@
 import { useState, useRef, useEffect } from "react";
 
+interface Message {
+    role: "user" | "ai";
+    text: string;
+    displayed?: string;
+}
+
 function Home() {
     const [isPrompted, setIsPrompted] = useState(false);
     const [inputValue, setInputValue] = useState("");
-    interface Message {
-        role: "user" | "ai";
-        text: string;
-        displayed?: string;
-    }
-
     const [messages, setMessages] = useState<Message[]>([]);
-    const bottomRef = useRef(null);
-    const scrollRef = useRef(null);
+    const bottomRef = useRef<HTMLDivElement>(null);
+    const scrollRef = useRef<HTMLDivElement>(null);
     const isAtBottomRef = useRef(true);
 
     const scrollToBottom = (smooth = true) => {
@@ -30,7 +30,7 @@ function Home() {
         scrollToBottom();
     }, [messages]);
 
-    const displayWordByWord = (text, messageIndex) => {
+    const displayWordByWord = (text: string, messageIndex: number) => {
         const words = text.split(" ");
         let i = 0;
         const interval = setInterval(() => {
@@ -49,7 +49,7 @@ function Home() {
         }, 60);
     };
 
-    const handleSubmit = async (prompt) => {
+    const handleSubmit = async (prompt: string) => {
         if (!prompt.trim()) return;
 
         const aiMessageIndex = messages.length + 1;
