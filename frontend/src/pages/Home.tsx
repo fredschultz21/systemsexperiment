@@ -161,6 +161,9 @@ function Home() {
                     onChange={handleImageChange}
                 />
             </div>
+            <p className="text-stone-500 text-xs font-serif">
+                This is general guidance, not certified financial advice.
+            </p>
         </div>
     );
 
