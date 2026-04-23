@@ -42,7 +42,7 @@ def get_gradio_client():
 
 def embed(text: str) -> list:
     response = requests.post(
-        "https://api-inference.huggingface.co/models/sentence-transformers/all-MiniLM-L6-v2",
+        "https://api-inference.huggingface.co/pipeline/feature-extraction/sentence-transformers/all-MiniLM-L6-v2",
         headers={"Authorization": f"Bearer {os.environ['HF_TOKEN']}"},
         json={"inputs": text},
         timeout=30
